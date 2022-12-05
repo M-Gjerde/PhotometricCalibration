@@ -155,8 +155,13 @@ int main() {
 
         cv::imshow("Window", dbgImg);
         cv::imshow("Original", images[i]);
+        if (cv::waitKey(0) == 27){
+            cv::imwrite("Original" + std::to_string(i) + ".png", images[i]);
+            cv::imwrite("Corrected" + std::to_string(i) + ".png", dbgImg);
+            printf("Saved image\n");
+        }
+
         delete[] image;
-        cv::waitKey(0);
     }
 
 }
