@@ -5,7 +5,7 @@
 #ifndef PHOTOMETRIC_CALIBRATION_CALIBRATION_H
 #define PHOTOMETRIC_CALIBRATION_CALIBRATION_H
 
-void openCvOptimalCameraMatrix() {
+void rectificationMap() {
     //fill matrices
     cv::Mat cam(3, 3, cv::DataType<float>::type);
     cam.at<float>(0, 0) = 1288.60f;
@@ -68,70 +68,6 @@ void distortCoordinates(float *x_, float *y_) {
 
     *x_ = xDistort;
     *y_ = yDistort;
-}
-
-void newOptimalCameraMatrix() {
-    float inputCalibration[4];
-    float outputCalibration[4];
-
-
-    float inWidth = 1920;
-    float inHeight = 1200;
-
-    float outWidth = 1920;
-    float outHeight = 1200;
-    // =============================== find optimal new camera matrix ===============================
-// prep warp matrices
-    float dist = inputCalibration[4];
-    float d2t = 2.0f * tan(dist / 2.0f);
-
-// current camera parameters
-    float fx = inputCalibration[0] * inWidth;
-    float fy = inputCalibration[1] * inHeight;
-    float cx = inputCalibration[2] * inWidth - 0.5;
-    float cy = inputCalibration[3] * inHeight - 0.5;
-
-    // output camera parameters
-    float ofx, ofy, ocx, ocy;
-
-    {
-        float left_radius = cx / fx;
-        float right_radius = (inWidth - 1 - cx) / fx;
-        float top_radius = cy / fy;
-        float bottom_radius = (inHeight - 1 - cy) / fy;
-
-        // find left-most and right-most radius
-        float tl_radius = sqrt(left_radius * left_radius + top_radius * top_radius);
-        float tr_radius = sqrt(right_radius * right_radius + top_radius * top_radius);
-        float bl_radius = sqrt(left_radius * left_radius + bottom_radius * bottom_radius);
-        float br_radius = sqrt(right_radius * right_radius + bottom_radius * bottom_radius);
-
-        float trans_tl_radius = tan(tl_radius * dist) / d2t;
-        float trans_tr_radius = tan(tr_radius * dist) / d2t;
-        float trans_bl_radius = tan(bl_radius * dist) / d2t;
-        float trans_br_radius = tan(br_radius * dist) / d2t;
-
-        float hor = std::max(br_radius, tr_radius) + std::max(bl_radius, tl_radius);
-        float vert = std::max(tr_radius, tl_radius) + std::max(bl_radius, br_radius);
-
-        float trans_hor = std::max(trans_br_radius, trans_tr_radius) + std::max(trans_bl_radius, trans_tl_radius);
-        float trans_vert = std::max(trans_tr_radius, trans_tl_radius) + std::max(trans_bl_radius, trans_br_radius);
-
-        ofy = fy * ((vert) / (trans_vert)) * ((float) outHeight / (float) inHeight);
-        ocy = std::max(trans_tl_radius / tl_radius, trans_tr_radius / tr_radius) * ofy * cy / fy;
-
-        ofx = fx * ((hor) / (trans_hor)) * ((float) outWidth / (float) inWidth);
-        ocx = std::max(trans_bl_radius / bl_radius, trans_tl_radius / tl_radius) * ofx * cx / fx;
-
-        printf("new K: %f %f %f %f\n", ofx, ofy, ocx, ocy);
-        printf("old K: %f %f %f %f\n", fx, fy, cx, cy);
-    }
-
-    outputCalibration[0] = ofx / outWidth;
-    outputCalibration[1] = ofy / outHeight;
-    outputCalibration[2] = (ocx + 0.5) / outWidth;
-    outputCalibration[3] = (ocy + 0.5) / outHeight;
-    outputCalibration[4] = 0;
 }
 
 #endif //PHOTOMETRIC_CALIBRATION_CALIBRATION_H

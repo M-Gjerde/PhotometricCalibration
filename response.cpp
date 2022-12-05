@@ -125,7 +125,7 @@ int main() {
     std::vector<cv::Mat> images;
     images.reserve(1200);
     printf("Loading images\n");
-    for (size_t i = 0; i < imageFileNames.size() / 10; ++i) {
+    for (size_t i = 0; i < imageFileNames.size() / 2; ++i) {
         images.emplace_back(cv::imread(files + ("images/" + imageFileNames[i] + ".png")));
     }
     printf("Loaded %zu images\n", images.size());

@@ -8,7 +8,7 @@ find_package(OpenCV REQUIRED)
 find_package (Eigen3 3.3 REQUIRED NO_MODULE)
 
 set(CMAKE_CXX_FLAGS
-        "${CMAKE_CXX_FLAGS_RELEASE} ${SSE_FLAGS} -std=c++0x"
+        "${SSE_FLAGS} -std=c++0x "#${CMAKE_CXX_FLAGS_RELEASE} "
         )
 include_directories( ${OpenCV_INCLUDE_DIRS} )
 
@@ -20,3 +20,6 @@ target_link_libraries(vignette_calibration ${OpenCV_LIBS} Eigen3::Eigen)
 
 add_executable(ArMarker ArMarker.cpp)
 target_link_libraries(ArMarker ${OpenCV_LIBS} Eigen3::Eigen)
+
+add_executable(ApplyCalibration apply_calibration.cpp)
+target_link_libraries(ApplyCalibration ${OpenCV_LIBS})

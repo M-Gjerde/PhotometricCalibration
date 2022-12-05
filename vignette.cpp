@@ -70,7 +70,7 @@ struct Image {
     }
 
     ~Image() {
-        delete data;
+        delete[] data;
     }
 };
 
@@ -211,13 +211,45 @@ for (const auto row: parser) {
 
     images.reserve(1200);
     printf("Loading images\n");
-    for (size_t i = 0; i < imageFileNames.size() / 10; ++i) {
+    for (size_t i = 0; i < imageFileNames.size() / 4; ++i) {
         images.emplace_back(
                 cv::imread(files + ("constant_exposure/images/" + imageFileNames[i]), cv::IMREAD_GRAYSCALE));
         if (images[i].data == NULL)
             throw std::runtime_error("Failed to load image: " + imageFileNames[i]);
     }
     printf("Loaded %zu images\n", images.size());
+    mkdir("vignetteCalibResult", 0777);
+
+    // load the inverse response function
+    std::string pCalibFile = "../result/photoCalibResult/pcalib.txt";
+    std::ifstream f(pCalibFile.c_str());
+    std::string line;
+    std::getline(f, line);
+    std::istringstream l1i(line);
+    std::vector<float> GInvvec = std::vector<float>(std::istream_iterator<float>(l1i), std::istream_iterator<float>());
+    float GInv[256];
+
+    if (GInvvec.size() != 256) {
+        printf("PhotometricUndistorter: invalid format! got %d entries in first line, expected 256!\n",
+               (int) GInvvec.size());
+    }
+
+    for (int i = 0; i < 256; i++)
+        GInv[i] = GInvvec[i];
+
+    float min=GInv[0];
+    float max=GInv[255];
+    for(float & i : GInv) i = 255.0f * (i - min) / (max-min);			// make it to 0..255 => 0..255.
+
+    bool isGood = true;
+    for (int i = 0; i < 255; i++) {
+        if (GInv[i + 1] <= GInv[i]) {
+            printf("PhotometricUndistorter: G invalid! it has to be strictly increasing, but it isnt!\n");
+            isGood = false;
+        }
+    }
+    if (isGood)
+        printf("Loaded camera inverse response function\n");
 
     int w = images[0].cols, h = images[0].rows;
 
@@ -243,8 +275,10 @@ for (const auto row: parser) {
 
         cv::imshow("DetectorImage", inputImage);
 
-        if (markerIds.size() != 1)
+        if (markerIds.size() != 1) {
+            printf("Did not find marker in image %d\n", i);
             continue;
+        }
 
         std::vector<cv::Point2f> ptsP;
         std::vector<cv::Point2f> ptsI;
@@ -253,10 +287,10 @@ for (const auto row: parser) {
         ptsI.emplace_back(cv::Point2f(markerCorners[0][2].x, markerCorners[0][2].y));
         ptsI.emplace_back(cv::Point2f(markerCorners[0][3].x, markerCorners[0][3].y));
         // Clockwise corners from top left
-        ptsP.push_back(cv::Point2f(-0.5, 0.5));
-        ptsP.push_back(cv::Point2f(0.5, 0.5));
-        ptsP.push_back(cv::Point2f(0.5, -0.5));
-        ptsP.push_back(cv::Point2f(-0.5, -0.5));
+        ptsP.emplace_back(cv::Point2f(-0.5, 0.5));
+        ptsP.emplace_back(cv::Point2f(0.5, 0.5));
+        ptsP.emplace_back(0.5, -0.5);
+        ptsP.emplace_back(cv::Point2f(-0.5, -0.5));
 
         cv::Mat Hcv = cv::findHomography(ptsP, ptsI);
         Eigen::Matrix3f H;
@@ -278,8 +312,8 @@ for (const auto row: parser) {
 
         Eigen::Matrix3f HK = H * K_p2idx_inverse;
 
-        float *plane2imgX = new float[gw * gh];
-        float *plane2imgY = new float[gw * gh];
+        auto *plane2imgX = new float[gw * gh];
+        auto *plane2imgY = new float[gw * gh];
         // every point in the plante gets transformed using the homography
         int idx = 0;
         for (int y = 0; y < gh; y++)
@@ -289,11 +323,11 @@ for (const auto row: parser) {
                 plane2imgY[idx] = pp[1] / pp[2];
                 idx++;
             }
-        auto *imgRaw = new Image(w, h);
+        auto imgRaw = Image(w, h);
         int v = 0;
         for (int y = 0; y < h; y++) {
             for (int x = 0; x < w; x++) {
-                imgRaw->data[v] = (float) inputImage.at<uchar>(y, x);
+                imgRaw.data[v] = (float) inputImage.at<uchar>(y, x);
                 v++;
             }
         }
@@ -301,12 +335,16 @@ for (const auto row: parser) {
         for (int x = 0; x < gw * gh; x++)
             distortCoordinates(&plane2imgX[x], &plane2imgY[x]);
 
-        if (imgRaw->exposure == 0) imgRaw->exposure = 1;
-
         auto *image = new float[w * h];
-        for (int y = 0; y < h; y++)
-            for (int x = 0; x < w; x++)
-                image[x + y * w] = meanExposure * imgRaw->data[x + y * w] / imgRaw->exposure;
+
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                image[x + y * w] = imgRaw.data[x + y * w];
+
+                // Apply the inverse camera response function
+                image[x + y * w] = GInv[static_cast<unsigned char>(image[x + y * w])];
+            }
+        }
 
         for (int y = 2; y < h - 2; y++)
             for (int x = 2; x < w - 2; x++) {
@@ -320,10 +358,10 @@ for (const auto row: parser) {
             }
 
         imageList.push_back(image);
-        cv::Mat dbgImg(imgRaw->h, imgRaw->w, CV_8UC3);
-        for (int i = 0; i < imgRaw->w * imgRaw->h; i++)
-            dbgImg.at<cv::Vec3b>(i) = cv::Vec3b(imgRaw->data[i], imgRaw->data[i], imgRaw->data[i]);
-            //dbgImg.at<uchar>(i) = (uchar) imgRaw->data[i];
+        cv::Mat dbgImg(imgRaw.h, imgRaw.w, CV_8UC3);
+        for (int pix = 0; pix < imgRaw.w * imgRaw.h; pix++) {
+            dbgImg.at<cv::Vec3b>(pix) = cv::Vec3b(imgRaw.data[pix], imgRaw.data[pix], imgRaw.data[pix]);
+        }
 
         for (int x = 0; x <= gw; x += 200)
             for (int y = 0; y <= gh; y += 10) {
@@ -379,6 +417,10 @@ for (const auto row: parser) {
         }
         p2imgX.push_back(plane2imgX);
         p2imgY.push_back(plane2imgY);
+
+        //delete[] plane2imgX;
+        //delete[] plane2imgY;
+        //delete[] image;
 
         std::cout << "Iterated image: " << i << std::endl;
         cv::waitKey(1);
